@@ -1,0 +1,29 @@
+{
+  "name": "txx-crop",
+  "version": "0.0.1",
+  "description": "image crop library",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "start": "tsc -w --pretty",
+    "build": "rm -rfv ./dist && tsc"
+  },
+  "bugs": {
+    "url": "https://github.com/joye61/txx-compress/issues"
+  },
+  "homepage": "https://github.com/joye61/txx-compress#readme",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/color-string": "^1.5.2",
+    "typescript": "^4.5.5"
+  },
+  "dependencies": {
+    "color-string": "^1.9.0",
+    "pixi.js": "^6.2.1"
+  }
+}

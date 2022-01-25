@@ -1,0 +1,10 @@
+/scripts/
+/.vscode/
+node_modules/
+tsconfig.json
+package-lock.json
+/.npmignore
+/.gitignore
+/src/
+.DS_Store
+/test/
