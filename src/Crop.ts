@@ -6,7 +6,6 @@ import {
   Container,
   Rectangle,
   Sprite,
-  Text,
   utils as pixiUtils,
   Texture,
   SCALE_MODES,
@@ -16,6 +15,7 @@ import {
   getColor,
   getDomInfo,
   isPassiveSupport,
+  isWebpSupport,
 } from "./utils";
 import {
   ControlType,
@@ -163,7 +163,7 @@ export class TxxCrop {
       this.app.stage.addChild(grid);
     }
 
-    // 由于4个角形状不变，只要不改变颜色，只需要绘制一次UI，优先绘制4个角
+    // 由于4个角形状不变，只要不改变颜色，只需要绘制一次UI
     this.drawCorners();
     this.controlLayer.addChild(
       this.cover,
@@ -177,8 +177,6 @@ export class TxxCrop {
       this.a4,
       this.move
     );
-    // 这里的事件监听逻辑主要是处理鼠标相关的东西
-    this.initCursorStyleEvent();
 
     // 创建预览app
     const previewContainerInfo = getDomInfo(option.previewContainer);
@@ -199,6 +197,10 @@ export class TxxCrop {
         this.previewApp.stage.addChild(grid);
       }
     }
+
+    // 这里的事件监听逻辑主要是处理鼠标样式相关
+    this.initCursorStyleEvent();
+    this.initEventHandler();
   }
 
   /**
@@ -253,6 +255,410 @@ export class TxxCrop {
       }
     }
     return grid;
+  }
+
+  /**
+   * 获取事件处理程序
+   * @returns
+   */
+  initEventHandler() {
+    // 临时记录鼠标刚按下时的各种信息
+    let sbox: null | Rectangle = null;
+    let simg: null | Point = null;
+    let spos: null | Point = null;
+    let controlName: null | ControlType = null;
+    // 临时存储ratio的值，约定ratio有值时为比例模式
+    let ratio = this.ratio;
+
+    // 脱离控制状态时，重置逻辑
+    const reset = () => {
+      this.isControl = false;
+      sbox = null;
+      simg = null;
+      spos = null;
+      controlName = null;
+    };
+
+    /**
+     * 处理指针按下时的逻辑
+     * @param event
+     */
+    const pointerDown = (event: InteractionEvent) => {
+      controlName = event.target.name as null | ControlType;
+      if (!this.isControl && controlName) {
+        this.isControl = true;
+        this.app.stage.cursor = this.cursorSets[controlName];
+        sbox = this.box.clone();
+        spos = event.data.global.clone();
+        ratio = this.ratio;
+        if (controlName === "image") {
+          simg = new Point(this.image!.x, this.image!.y);
+        }
+      }
+    };
+
+    /**
+     * 处理指针移动时的逻辑
+     * @param event
+     * @returns
+     */
+    const pointerMove = (event: InteractionEvent) => {
+      if (this.isControl) {
+        // 断言存在声明
+        spos = spos as Point;
+        sbox = sbox as Rectangle;
+
+        // 当前指针的位置
+        const pos = event.data.global;
+        let dx = pos.x - spos.x;
+        let dy = pos.y - spos.y;
+        let { x, y, width: w, height: h } = sbox;
+
+        // 一些临时变量
+        let nx: number;
+        let ny: number;
+        let minNx: number;
+        let minNy: number;
+        let maxNx: number;
+        let maxNy: number;
+
+        switch (controlName) {
+          case "s1": {
+            // 等比模式不允许拖拽边框
+            if (ratio) return;
+            // ny代表第1|2个角的y轴
+            ny = y + dy;
+            minNy = 4;
+            maxNy = y + h - 16;
+            if (ny <= minNy) ny = minNy;
+            if (ny >= maxNy) ny = maxNy;
+            this.box.y = ny;
+            this.box.height = y + h - ny;
+            break;
+          }
+          case "s2": {
+            // 等比模式不允许拖拽边框
+            if (ratio) return;
+            // nx代表第2|3个角的x轴
+            nx = x + w + dx;
+            minNx = x + 16;
+            maxNx = this.appWidth - 4;
+            if (nx <= minNx) nx = minNx;
+            if (nx >= maxNx) nx = maxNx;
+            this.box.width = nx - x;
+            break;
+          }
+          case "s3": {
+            // 等比模式不允许拖拽边框
+            if (ratio) return;
+            // ny代表第3|4个角的y轴
+            ny = y + h + dy;
+            minNy = y + 16;
+            maxNy = this.appHeight - 4;
+            if (ny <= minNy) ny = minNy;
+            if (ny >= maxNy) ny = maxNy;
+            this.box.height = ny - y;
+            break;
+          }
+          case "s4": {
+            if (ratio) return;
+            // nx代表第1|4个角的x轴
+            nx = x + dx;
+            minNx = 4;
+            maxNx = x + w - 16;
+            if (nx <= minNx) nx = minNx;
+            if (nx >= maxNx) nx = maxNx;
+            this.box.x = nx;
+            this.box.width = x + w - nx;
+            break;
+          }
+          case "a1": {
+            // 非比例模式
+            if (!ratio) {
+              nx = x + dx;
+              ny = y + dy;
+              minNx = 4;
+              maxNx = x + w - 16;
+              minNy = 4;
+              maxNy = y + h - 16;
+            }
+            // 比例模式
+            else {
+              // 推断宽度还是高度先到达临界点
+              minNx = 4;
+              minNy = y + h - (x + w - 4) / ratio;
+              if (minNy <= 4) {
+                minNy = 4;
+                minNx = x + w - (y + h - 4) * ratio;
+              }
+              // 根据ratio判断以横轴还是纵轴缩放为主
+              if (ratio > 1) {
+                nx = x + dx;
+                ny = y + h - (x + w - nx) / ratio;
+                // 最小高度16
+                maxNy = y + h - 16;
+                maxNx = x + w - 16 * ratio;
+              } else {
+                ny = y + dy;
+                nx = x + w - (y + h - ny) * ratio;
+                // 最小宽度16
+                maxNx = x + w - 16;
+                maxNy = y + h - 16 / ratio;
+              }
+            }
+
+            if (nx <= minNx) nx = minNx;
+            if (nx >= maxNx) nx = maxNx;
+            if (ny <= minNy) ny = minNy;
+            if (ny >= maxNy) ny = maxNy;
+            this.box.x = nx;
+            this.box.y = ny;
+            this.box.width = x + w - nx;
+            this.box.height = y + h - ny;
+
+            break;
+          }
+
+          case "a2": {
+            // 非比例模式
+            if (!ratio) {
+              nx = x + w + dx;
+              ny = y + dy;
+              minNx = x + 16;
+              maxNx = this.appWidth - 4;
+              minNy = 4;
+              maxNy = y + h - 16;
+            }
+            // 比例模式
+            else {
+              // 推断宽度还是高度先到达临界点
+              maxNx = this.appHeight - 4;
+              minNy = y + h - (maxNx - x) / ratio;
+              if (minNy <= 4) {
+                minNy = 4;
+                maxNx = x + (y + h - 4) * ratio;
+              }
+              // 根据ratio判断以横轴还是纵轴缩放为主
+              if (ratio > 1) {
+                nx = x + w + dx;
+                ny = y + h - (nx - x) / ratio;
+                // 最小高度16
+                maxNy = y + h - 16;
+                minNx = x + 16 * ratio;
+              } else {
+                ny = y + dy;
+                nx = x + (y + h - ny) * ratio;
+                // 最小宽度16
+                minNx = x + 16;
+                maxNy = y + h - 16 / ratio;
+              }
+            }
+
+            if (nx <= minNx) nx = minNx;
+            if (nx >= maxNx) nx = maxNx;
+            if (ny <= minNy) ny = minNy;
+            if (ny >= maxNy) ny = maxNy;
+            this.box.y = ny;
+            this.box.width = nx - x;
+            this.box.height = y + h - ny;
+
+            break;
+          }
+          case "a3": {
+            // 非比例模式
+            if (!ratio) {
+              nx = x + w + dx;
+              ny = y + h + dy;
+              minNx = x + 16;
+              maxNx = this.appWidth - 4;
+              minNy = y + 16;
+              maxNy = this.appHeight - 4;
+            }
+            // 比例模式
+            else {
+              // 推断宽度还是高度先到达临界点
+              maxNx = this.appWidth - 4;
+              maxNy = y + (maxNx - x) / ratio;
+              if (maxNy >= this.appHeight - 4) {
+                maxNy = this.appHeight - 4;
+                maxNx = x + (maxNy - y) * ratio;
+              }
+              // 根据ratio判断以横轴还是纵轴缩放为主
+              if (ratio > 1) {
+                nx = x + w + dx;
+                ny = y + (nx - x) / ratio;
+                // 最小高度16
+                minNy = y + 16;
+                minNx = x + 16 * ratio;
+              } else {
+                ny = y + h + dy;
+                nx = x + (ny - y) * ratio;
+                // 最小宽度16
+                minNx = x + 16;
+                minNy = y + 16 / ratio;
+              }
+            }
+
+            if (nx <= minNx) nx = minNx;
+            if (nx >= maxNx) nx = maxNx;
+            if (ny <= minNy) ny = minNy;
+            if (ny >= maxNy) ny = maxNy;
+            this.box.width = nx - x;
+            this.box.height = ny - y;
+            break;
+          }
+          case "a4": {
+            // 非比例模式
+            if (!ratio) {
+              nx = x + dx;
+              ny = y + h + dy;
+              minNx = 4;
+              maxNx = x + w - 16;
+              minNy = y + 16;
+              maxNy = this.appHeight - 4;
+            }
+            // 比例模式
+            else {
+              // 推断宽度还是高度先到达临界点
+              minNx = 4;
+              maxNy = y + (x + w - 4) / ratio;
+              if (maxNy >= this.appHeight - 4) {
+                maxNy = this.appHeight - 4;
+                minNx = x + w - (maxNy - y) * ratio;
+              }
+              // 根据ratio判断以横轴还是纵轴缩放为主
+              if (ratio > 1) {
+                nx = x + dx;
+                ny = y + (x + w - nx) / ratio;
+                // 最小高度16
+                minNy = y + 16;
+                maxNx = x + w - 16 * ratio;
+              } else {
+                ny = y + h + dy;
+                nx = x + w - (ny - y) * ratio;
+                // 最小宽度16
+                maxNx = x + w - 16;
+                minNy = y + 16 / ratio;
+              }
+            }
+
+            if (nx <= minNx) nx = minNx;
+            if (nx >= maxNx) nx = maxNx;
+            if (ny <= minNy) ny = minNy;
+            if (ny >= maxNy) ny = maxNy;
+            this.box.x = nx;
+            this.box.width = x + w - nx;
+            this.box.height = ny - y;
+            break;
+          }
+          case "move": {
+            let nx = x + dx;
+            let ny = y + dy;
+            let minNx = 4;
+            let minNy = 4;
+            let maxNx = this.appWidth - 4 - w;
+            let maxNy = this.appHeight - 4 - h;
+            if (nx <= minNx) nx = minNx;
+            if (ny <= minNy) ny = minNy;
+            if (nx >= maxNx) nx = maxNx;
+            if (ny >= maxNy) ny = maxNy;
+            this.box.x = nx;
+            this.box.y = ny;
+            break;
+          }
+          case "image": {
+            this.image!.x = simg!.x + dx;
+            this.image!.y = simg!.y + dy;
+          }
+          default:
+            break;
+        }
+
+        // 更新完了点的坐标，更新UI
+        this.updateApp();
+        this.updatePreviewApp();
+      }
+    };
+
+    /**
+     * 处理指针弹起时的逻辑
+     */
+    const pointerUp = () => {
+      if (this.isControl) {
+        this.app.stage.cursor = "default";
+        reset();
+      }
+    };
+
+    const stage = this.app.stage;
+    stage.on("pointerdown", pointerDown);
+    stage.on("pointermove", pointerMove);
+    stage.on("pointerup", pointerUp);
+    stage.on("pointerupoutside", pointerUp);
+
+    // 下面开始执行缩放逻辑
+    const doc = document.documentElement;
+    let isOnImage = false;
+
+    stage.on("pointermove", (event: InteractionEvent) => {
+      if (
+        !this.isControl &&
+        this.image &&
+        this.image.containsPoint(event.data.global)
+      ) {
+        // 设置鼠标已经位于图片中
+        isOnImage = true;
+
+        // 将鼠标坐标转换为image本地
+        const local = this.image.toLocal(event.data.global);
+        // 更新pivot和pos
+        const x = this.image.pivot.x;
+        const y = this.image.pivot.y;
+        this.image.pivot.x = local.x;
+        this.image.pivot.y = local.y;
+        // pivot返回的是未经缩放的原始值，因而要乘以缩放系数转换为全局坐标
+        this.image.x += (local.x - x) * this.image.scale.x;
+        this.image.y += (local.y - y) * this.image.scale.y;
+      } else {
+        isOnImage = false;
+      }
+    });
+    stage.on("pointerout", () => {
+      isOnImage = false;
+    });
+    const onWheel = (event: WheelEvent) => {
+      if (isOnImage) {
+        event.preventDefault();
+        this.image = this.image as Sprite;
+
+        // 更新尺寸信息
+        const ratio = this.image.width / this.image.height;
+        let nh = this.image.height - event.deltaY;
+
+        // 下面的逻辑确保了缩放图片的宽度或高度最小值不能小于16
+        if (nh <= 16) {
+          nh = 16;
+        }
+        let nw = nh * ratio;
+        if (nw <= 16) {
+          nw = 16;
+          nh = nw / ratio;
+        }
+
+        // 更新缩放后的宽度和高度
+        this.image.height = nh;
+        this.image.width = nw;
+
+        // 更新文字尺寸信息
+        this.updatePreviewApp();
+      }
+    };
+    // passive特性有可能不被支持，这里是兼容逻辑
+    if (isPassiveSupport()) {
+      doc.addEventListener("wheel", onWheel, { passive: false });
+    } else {
+      doc.addEventListener("wheel", onWheel);
+    }
   }
 
   /**
@@ -645,10 +1051,146 @@ export class TxxCrop {
     this.updatePreviewApp();
   }
 
-  getCropAreaAsBlob() {}
-  getCropAreaAsImage() {}
-  getCropAreaAsCanvas() {}
-  downloadCropAreaAsPNG() {}
-  downloadCropAreaAsJPEG() {}
-  downloadCropAreaAsWEBP() {}
+  /**
+   * 裁剪图片，获取裁剪区域为canvas
+   * @param trim
+   */
+  getCropAreaAsCanvas(trim: boolean = false): HTMLCanvasElement | undefined {
+    if (!this.image) return;
+    const rect = this.getCropRelativeRect();
+    let app: Application | null = new Application({
+      width: rect.width,
+      height: rect.height,
+      backgroundAlpha: 0,
+    });
+
+    const texture = this.image.texture.clone();
+    const sprite = new Sprite(texture);
+    sprite.texture.baseTexture.scaleMode = SCALE_MODES.NEAREST;
+    sprite.x = -rect.x;
+    sprite.y = -rect.y;
+    app.stage.addChild(sprite);
+    app.render();
+
+    let canvas: HTMLCanvasElement = app.view;
+    // 如果是固定宽高模式，还需要缩放canvas
+    if (this.cropWidth && this.cropHeight) {
+      app.destroy();
+      app = new Application({
+        width: this.cropWidth,
+        height: this.cropHeight,
+        backgroundAlpha: 0,
+      });
+      const newTexture = Sprite.from(canvas);
+      newTexture.texture.baseTexture.scaleMode = SCALE_MODES.NEAREST;
+      newTexture.width = this.cropWidth;
+      newTexture.height = this.cropHeight;
+      app.stage.addChild(newTexture);
+      app.render();
+      canvas = app.view;
+    }
+
+    // 如果要裁剪掉边缘空白
+    if (trim) {
+      // 因为默认启用了webgl，所以先转换为2d模式，以便可以读取ImageData
+      const convert = document.createElement("canvas");
+      convert.width = app.renderer.width;
+      convert.height = app.renderer.height;
+      convert.getContext("2d")!.drawImage(canvas, 0, 0);
+      // 现在可以读取转换后的canvas的数据了
+      const trimResult = pixiUtils.trimCanvas(convert);
+      if (trimResult.data instanceof ImageData) {
+        const tmpCanvas = document.createElement("canvas");
+        tmpCanvas.width = trimResult.width;
+        tmpCanvas.height = trimResult.height;
+        const context = tmpCanvas.getContext("2d")!;
+        context.putImageData(trimResult.data, 0, 0);
+        canvas = tmpCanvas;
+      }
+    }
+
+    return canvas;
+  }
+
+  /**
+   * 获取裁剪区的内容为blob
+   * @param type
+   * @param trim
+   * @returns
+   */
+  async getCropAreaAsBlob(
+    type: "png" | "jpg" | "jpeg" | "webp",
+    trim: boolean = false
+  ): Promise<Blob | null> {
+    const canvas = this.getCropAreaAsCanvas(trim);
+    if (!canvas) return null;
+    const mimeMap = {
+      JPG: "image/jpeg",
+      JPEG: "image/jpeg",
+      PNG: "image/png",
+      WEBP: "image/webp",
+    };
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(
+        resolve,
+        mimeMap[type.toUpperCase() as keyof typeof mimeMap]
+      );
+    });
+    return blob;
+  }
+
+  /**
+   * 读取裁剪区的内容为图片
+   */
+  async getCropAreaAsImage(
+    trim: boolean = false
+  ): Promise<HTMLImageElement | null> {
+    const canvas = this.getCropAreaAsCanvas(trim);
+    if (!canvas) return null;
+    return new Promise<HTMLImageElement | null>((resolve) => {
+      const img = document.createElement("img");
+      img.src = canvas.toDataURL();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+    });
+  }
+
+  /**
+   * 下载裁剪区为png格式
+   * @param name
+   * @param trim
+   */
+  async downloadCropAreaAsPNG(name: string, trim: boolean = false) {
+    const blob = await this.getCropAreaAsBlob("png", trim);
+    if (blob) {
+      createDownload(`${name}.png`, blob);
+    }
+  }
+
+  /**
+   * 下载裁剪区为jpeg格式
+   * @param name
+   * @param trim
+   */
+  async downloadCropAreaAsJPEG(name: string, trim: boolean = false) {
+    const blob = await this.getCropAreaAsBlob("jpeg", trim);
+    if (blob) {
+      createDownload(`${name}.jpg`, blob);
+    }
+  }
+
+  /**
+   * 下载裁剪区为webp格式
+   * @param name
+   * @param trim
+   */
+  async downloadCropAreaAsWEBP(name: string, trim: boolean = false) {
+    if (!isWebpSupport()) {
+      throw new Error(`Current browser does not support webp format`);
+    }
+    const blob = await this.getCropAreaAsBlob("webp", trim);
+    if (blob) {
+      createDownload(`${name}.webp`, blob);
+    }
+  }
 }

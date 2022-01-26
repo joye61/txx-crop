@@ -70,3 +70,13 @@ export function getColor(color: number | string) {
   }
   throw new Error("Invalid color value");
 }
+
+/**
+ * 判断webp格式是否支持
+ * @returns boolean
+ */
+export function isWebpSupport() {
+  const canvas = document.createElement("canvas");
+  const mime = "image/webp";
+  return canvas.toDataURL(mime).indexOf(`data:${mime}`) === 0;
+}
